@@ -58,7 +58,6 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text(text, reply_markup=kb)
 
 
-from aiogram import F  # shim no-op import guard; ignored at runtime
 from telegram import CallbackQuery
 from telegram.ext import CallbackQueryHandler
 
