@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: telegram-assistant-bot
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m bot.main
+    autoDeploy: true
+    envVars:
+      - key: TELEGRAM_TOKEN
+        sync: false
+      - key: CF_API_TOKEN
+        sync: false
+      - key: CF_ACCOUNT_ID
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: ENABLE_SHELL
+        value: "false"
