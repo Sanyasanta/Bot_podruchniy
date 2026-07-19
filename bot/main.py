@@ -34,12 +34,48 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db: Database = context.application.bot_data["db"]
     db.ensure_profile(update.effective_user.id, update.effective_user.first_name)
     text = (
-        "Привет! Я ассистент: заметки, напоминания, веб‑поиск, ответы и простые действия на ПК.\n\n"
-        "Пиши по‑человечески: например, ‘сохрани заметку купить молоко’, ‘напомни в 18:30 позвонить’, ‘найди новости про ИИ’, ‘объясни генераторы в Python’.\n\n"
-        "Подсказки команд (необязательны):\n"
-        "/ping, /note, /notes, /find, /remind, /reminders, /web, /ask, /tz, /profile"
+        "🤖 Podruchniy готов к работе\n\n"
+        "Привет! На связи Саша Булкин. Я собрал для тебя самые мощные и удобные нейросети для текста, изображений, видео и музыки.\n\n"
+        "Что можно здесь:\n"
+        "- ⚡️ Выбрать модель: от домашки до рабочих задач. 8 текстовых ИИ на выбор — ответ мгновенно.\n"
+        "- 🎨 Изображения: сгенерировать картинку или отредактировать фото.\n"
+        "- 🎬 Видео: сделать ролик, открытку или мем.\n"
+        "- 🥁 Песни: создать джингл, саундтрек или частушки.\n"
+        "- 🧠 О моделях: краткие описания, чтобы быстро подобрать нужную.\n\n"
+        "Как пользоваться:\n"
+        "- Пиши по‑человечески: ‘сохрани заметку купить молоко’, ‘напомни завтра в 9:30’, ‘найди новости про ИИ’, ‘объясни генераторы в Python’.\n"
+        "- Или выбери раздел ниже.\n\n"
+        "Подсказки команд: /ping, /note, /notes, /find, /remind, /reminders, /web, /ask, /tz, /profile"
     )
-    await update.effective_message.reply_text(text)
+    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⚡️ Текст", callback_data="nav:text"), InlineKeyboardButton(text="🎨 Изображения", callback_data="nav:image")],
+            [InlineKeyboardButton(text="🎬 Видео", callback_data="nav:video"), InlineKeyboardButton(text="🥁 Песни", callback_data="nav:audio")],
+            [InlineKeyboardButton(text="🧠 Модели", callback_data="nav:models")],
+        ]
+    )
+    await update.effective_message.reply_text(text, reply_markup=kb)
+
+
+from aiogram import F  # shim no-op import guard; ignored at runtime
+from telegram import CallbackQuery
+from telegram.ext import CallbackQueryHandler
+
+
+async def nav_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    data = query.data if query else ""
+    mapping = {
+        "nav:text": "Напиши текстовый запрос — отвечу сразу или подключу нужную модель.",
+        "nav:image": "Генерация изображений в разработке. Можешь описать, что нужно — подготовлю промпт.",
+        "nav:video": "Генерация видео в разработке. Опиши идею ролика — соберу промпт и план.",
+        "nav:audio": "Генерация музыки в разработке. Напиши стиль и настроение — подготовлю промпт.",
+        "nav:models": "Доступные режимы: текст, веб‑поиск, заметки, напоминания. Пиши запрос — подберу инструмент.",
+    }
+    msg = mapping.get(data, "Выбери раздел или просто задай вопрос текстом.")
+    await query.answer()
+    await query.message.reply_text(msg)
 
 
 async def cmd_ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -377,6 +413,7 @@ async def main_async():
     app.add_handler(CommandHandler("shell", cmd_shell))
     app.add_handler(CommandHandler("tz", cmd_tz))
     app.add_handler(CommandHandler("profile", cmd_profile))
+    app.add_handler(CallbackQueryHandler(nav_callback, pattern=r"^nav:.*"))
 
     # Text handler for auto-intents (must be after command handlers)
     from telegram.ext import MessageHandler, filters
