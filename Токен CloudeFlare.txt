@@ -1,9 +1,1 @@
-Токен CloudeFlare
-cfat_sPDB2MtKRJklePu0VCLVr8qdS1hCAvC8KkUHxxc7cbbfe215 
 
-Account ID
-cde0fe35ae431bbeaaf1d25e638e2713
-
-Example Usage
-curl -X GET "https://api.cloudflare.com/client/v4/accounts/cde0fe35ae431bbeaaf1d25e638e2713/tokens/verify" \
-     -H "Authorization: Bearer cfat_sPDB2MtKRJklePu0VCLVr8qdS1hCAvC8KkUHxxc7cbbfe215"
