@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from datetime import datetime
 
 from telegram import Update
@@ -218,12 +219,10 @@ async def cmd_shell(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.effective_message.reply_text(f"Ошибка выполнения: {e}")
 
 
-def main():
+async def main_async():
     cfg = load_config()
     db = Database(cfg.db_path)
 
-    # Configure request with higher timeouts and trust system proxies
-    # HTTPXRequest uses httpx defaults and respects system proxy via environment by default
     request = HTTPXRequest(
         connection_pool_size=20,
         connect_timeout=30.0,
@@ -253,17 +252,20 @@ def main():
     app.add_handler(CommandHandler("ask", cmd_ask))
     app.add_handler(CommandHandler("shell", cmd_shell))
 
-    async def on_start(app: Application):
-        # Start scheduler when event loop is ready
-        sched.start()
-        sched.load_pending()
-
-    # Assign lifecycle hook (PTB v21 uses attribute assignment)
-    app.post_init = on_start
-
+    # Explicit async lifecycle for Python 3.14/Render
+    await app.initialize()
+    sched.start()
+    sched.load_pending()
+    await app.start()
     logging.info("Bot started. Polling...")
-    app.run_polling()
+    try:
+        await app.updater.start_polling()
+        await asyncio.Event().wait()
+    finally:
+        await app.updater.stop()
+        await app.stop()
+        await app.shutdown()
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main_async())
