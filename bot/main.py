@@ -237,8 +237,6 @@ def main():
         await app.bot.send_message(user_id, f"⏰ Напоминание: {text}")
 
     sched = ReminderScheduler(db, notify)
-    sched.start()
-    sched.load_pending()
 
     app.bot_data["db"] = db
     app.bot_data["scheduler"] = sched
@@ -254,6 +252,14 @@ def main():
     app.add_handler(CommandHandler("web", cmd_web))
     app.add_handler(CommandHandler("ask", cmd_ask))
     app.add_handler(CommandHandler("shell", cmd_shell))
+
+    async def on_start(app: Application):
+        # Start scheduler when event loop is ready
+        sched.start()
+        sched.load_pending()
+
+    # Assign lifecycle hook (PTB v21 uses attribute assignment)
+    app.post_init = on_start
 
     logging.info("Bot started. Polling...")
     app.run_polling()

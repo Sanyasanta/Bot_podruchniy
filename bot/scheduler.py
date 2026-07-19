@@ -11,6 +11,7 @@ class ReminderScheduler:
     def __init__(self, db, notify: Callable[[int, str], None]):
         self.db = db
         self.notify = notify
+        # Scheduler will be started when event loop is ready (see app post_init)
         self.scheduler = AsyncIOScheduler()
 
     def start(self):
