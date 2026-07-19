@@ -12,22 +12,34 @@ from bot.db import Database
 from bot.scheduler import ReminderScheduler
 from bot.llm_providers import CloudflareAI
 from bot.websearch import Tavily
+from bot.intents import detect_intent
+from bot.actions import (
+    do_add_note,
+    do_list_notes,
+    do_find_notes,
+    do_add_reminder,
+    do_list_reminders,
+    do_web,
+    do_ask,
+    do_open_app,
+    do_make_dir,
+    do_run_safe,
+)
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.effective_message.reply_text(
-        "Привет! Я личный бот заметок и напоминаний.\n\n"
-        "Команды:\n"
-        "/ping — проверить, что я жив\n"
-        "/note <текст> — добавить заметку\n"
-        "/notes — показать заметки\n"
-        "/find <подстрока> — поиск по заметкам\n"
-        "/remind <текст> | <YYYY-MM-DD HH:MM> — создать напоминание\n"
-        "/reminders — активные напоминания"
+    db: Database = context.application.bot_data["db"]
+    db.ensure_profile(update.effective_user.id, update.effective_user.first_name)
+    text = (
+        "Привет! Я ассистент: заметки, напоминания, веб‑поиск, ответы и простые действия на ПК.\n\n"
+        "Пиши по‑человечески: например, ‘сохрани заметку купить молоко’, ‘напомни в 18:30 позвонить’, ‘найди новости про ИИ’, ‘объясни генераторы в Python’.\n\n"
+        "Подсказки команд (необязательны):\n"
+        "/ping, /note, /notes, /find, /remind, /reminders, /web, /ask, /tz, /profile"
     )
+    await update.effective_message.reply_text(text)
 
 
 async def cmd_ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -188,6 +200,118 @@ async def cmd_ask(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.effective_message.reply_text(answer)
 
 
+async def cmd_tz(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    db: Database = context.application.bot_data["db"]
+    args = update.effective_message.text.split(maxsplit=1)
+    if len(args) < 2:
+        await update.effective_message.reply_text("Формат: /tz <+HH:MM>")
+        return
+    tz = args[1].strip()
+    db.set_tz(update.effective_user.id, tz)
+    await update.effective_message.reply_text(f"Часовой пояс установлен: {tz}")
+
+
+async def cmd_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    db: Database = context.application.bot_data["db"]
+    db.ensure_profile(update.effective_user.id, update.effective_user.first_name)
+    p = db.get_profile(update.effective_user.id)
+    mem = db.get_memory_notes(update.effective_user.id, limit=3)
+    name = p["name"] if p else ""
+    tz = p["tz_offset"] if p else ""
+    text = f"Профиль: {name}\nTZ: {tz or 'не задан'}\nПамять: {len(mem)} заметок"
+    if mem:
+        text += "\n\nПоследние заметки памяти:\n" + "\n".join(f"- {m}" for m in mem)
+    await update.effective_message.reply_text(text)
+
+
+async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Auto intent mode for plain text
+    db: Database = context.application.bot_data["db"]
+    cfg = context.application.bot_data["cfg"]
+    db.ensure_profile(update.effective_user.id, update.effective_user.first_name)
+    history_rows = db.get_history(update.effective_user.id, limit=10)
+    history = [{"role": r["role"], "content": r["content"]} for r in history_rows]
+    profile_row = db.get_profile(update.effective_user.id)
+    profile = {"name": profile_row["name"], "tz_offset": profile_row["tz_offset"]} if profile_row else None
+    memory = db.get_memory_notes(update.effective_user.id, limit=3)
+
+    ai = CloudflareAI(cfg.cf_account_id, cfg.cf_api_token)
+    try:
+        intent = await detect_intent(ai, history, update.effective_message.text, profile, memory)
+    except Exception as e:
+        intent = {"intent": "ask_ai", "args": {"text": update.effective_message.text}}
+    finally:
+        await ai.close()
+
+    if cfg.debug_intents:
+        await update.effective_message.reply_text(f"intent={intent.get('intent')} args={intent.get('args')}")
+
+    action = intent.get("intent")
+    args = intent.get("args", {})
+
+    # Route
+    if action == "add_note":
+        text = args.get("text") or update.effective_message.text
+        reply = await do_add_note(db, update.effective_user.id, text)
+    elif action == "list_notes":
+        reply = await do_list_notes(db, update.effective_user.id)
+    elif action == "find_notes":
+        query = args.get("query") or update.effective_message.text
+        reply = await do_find_notes(db, update.effective_user.id, query)
+    elif action == "add_reminder":
+        text = args.get("text") or update.effective_message.text
+        time_str = args.get("time") or ""
+        reply = await do_add_reminder(db, context.application.bot_data["scheduler"], update.effective_user.id, text, time_str)
+    elif action == "list_reminders":
+        reply = await do_list_reminders(db, update.effective_user.id)
+    elif action == "web_search":
+        if not cfg.tavily_api_key:
+            reply = "Tavily API ключ не настроен"
+        else:
+            query = args.get("query") or update.effective_message.text
+            reply = await do_web(cfg.tavily_api_key, query)
+    elif action == "open_app":
+        if not cfg.enable_open_apps:
+            reply = "Открытие приложений недоступно в этом окружении"
+        else:
+            app_name = args.get("app") or ""
+            reply = do_open_app(app_name, cfg.allowed_apps)
+    elif action == "make_dir":
+        path = args.get("path") or ""
+        reply = do_make_dir(path, cfg.allowed_dirs)
+    elif action == "run_safe":
+        if not cfg.enable_shell:
+            reply = "Команда недоступна в этом окружении"
+        else:
+            cmd = args.get("cmd") or ""
+            reply = do_run_safe(cmd)
+    elif action in ("smalltalk", "ask_ai"):
+        # Use ask with memory
+        ai2 = CloudflareAI(cfg.cf_account_id, cfg.cf_api_token)
+        try:
+            msgs = history + [{"role": "user", "content": update.effective_message.text}]
+            reply = await do_ask(ai2, msgs, update.effective_user.id, db)
+        except Exception as e:
+            reply = f"Ошибка LLM: {e}"
+        finally:
+            await ai2.close()
+    else:
+        # Fallback
+        ai2 = CloudflareAI(cfg.cf_account_id, cfg.cf_api_token)
+        try:
+            msgs = history + [{"role": "user", "content": update.effective_message.text}]
+            reply = await do_ask(ai2, msgs, update.effective_user.id, db)
+        except Exception as e:
+            reply = f"Ошибка LLM: {e}"
+        finally:
+            await ai2.close()
+
+    # Save interaction to history
+    db.add_message(update.effective_user.id, "user", update.effective_message.text)
+    db.add_message(update.effective_user.id, "assistant", reply)
+    await update.effective_message.reply_text(reply)
+
+
 async def cmd_shell(update: Update, context: ContextTypes.DEFAULT_TYPE):
     cfg = context.application.bot_data["cfg"]
     if not cfg.enable_shell:
@@ -251,6 +375,12 @@ async def main_async():
     app.add_handler(CommandHandler("web", cmd_web))
     app.add_handler(CommandHandler("ask", cmd_ask))
     app.add_handler(CommandHandler("shell", cmd_shell))
+    app.add_handler(CommandHandler("tz", cmd_tz))
+    app.add_handler(CommandHandler("profile", cmd_profile))
+
+    # Text handler for auto-intents (must be after command handlers)
+    from telegram.ext import MessageHandler, filters
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
 
     # Explicit async lifecycle for Python 3.14/Render
     await app.initialize()

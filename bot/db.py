@@ -58,6 +58,26 @@ class Database:
                 );
                 """
             )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS user_profile (
+                    user_id INTEGER PRIMARY KEY,
+                    name TEXT,
+                    tz_offset TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS memory_notes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    note TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                """
+            )
 
     # Notes
     def add_note(self, user_id: int, text: str) -> int:
@@ -144,3 +164,48 @@ class Database:
             rows = cur.fetchall()
             rows.reverse()
             return rows
+
+    # User profile / memory
+    def ensure_profile(self, user_id: int, name: str | None = None):
+        with self.connect() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO user_profile(user_id, name) VALUES (?, ?)",
+                (user_id, name),
+            )
+            if name:
+                conn.execute(
+                    "UPDATE user_profile SET name = COALESCE(name, ?) WHERE user_id = ?",
+                    (name, user_id),
+                )
+
+    def set_tz(self, user_id: int, tz_offset: str):
+        with self.connect() as conn:
+            conn.execute(
+                "INSERT INTO user_profile(user_id, tz_offset) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET tz_offset=excluded.tz_offset",
+                (user_id, tz_offset),
+            )
+
+    def get_profile(self, user_id: int):
+        with self.connect() as conn:
+            cur = conn.execute(
+                "SELECT user_id, name, tz_offset, created_at FROM user_profile WHERE user_id = ?",
+                (user_id,),
+            )
+            return cur.fetchone()
+
+    def add_memory_note(self, user_id: int, note: str):
+        with self.connect() as conn:
+            conn.execute(
+                "INSERT INTO memory_notes(user_id, note) VALUES (?, ?)",
+                (user_id, note),
+            )
+
+    def get_memory_notes(self, user_id: int, limit: int = 3):
+        with self.connect() as conn:
+            cur = conn.execute(
+                "SELECT note FROM memory_notes WHERE user_id = ? ORDER BY id DESC LIMIT ?",
+                (user_id, limit),
+            )
+            rows = cur.fetchall()
+            rows.reverse()
+            return [r["note"] for r in rows]
