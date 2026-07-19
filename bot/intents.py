@@ -53,6 +53,12 @@ def build_prompt(history: List[Dict[str, str]], text: str, profile: Dict[str, An
 
 
 async def detect_intent(ai: CloudflareAI, history: List[Dict[str, str]], text: str, profile: Dict[str, Any] | None, memory: List[str]) -> Dict[str, Any]:
+    # Heuristic: force web_search for news-like queries
+    lower = text.lower()
+    news_triggers = ["новости", "последние", "актуальные", "свежие", "today", "latest", "news"]
+    if any(w in lower for w in news_triggers):
+        return {"intent": "web_search", "args": {"query": text}}
+
     prompt = build_prompt(history, text, profile, memory)
     messages = [
         {"role": "system", "content": "Ты возвращаешь только JSON."},

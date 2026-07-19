@@ -70,15 +70,17 @@ async def do_web(api_key: str, query: str) -> str:
         results = await tav.search(query, max_results=5)
         if not results:
             return "Ничего не найдено"
-        lines = []
+        # Build a brief summary request with sources for LLM
+        sources = []
         for r in results[:5]:
             title = r.get("title") or r.get("url")
             url = r.get("url")
             snippet = (r.get("content") or "").strip()
-            if len(snippet) > 180:
-                snippet = snippet[:180] + "…"
-            lines.append(f"• {title}\n{url}\n{snippet}")
-        return "\n\n".join(lines)
+            sources.append({"title": title, "url": url, "snippet": snippet})
+        # Compose markdown with sources and a short summary prompt suggestion
+        lines = [f"• [{s['title']}]({s['url']})" for s in sources]
+        header = "Нашёл источники:\n" + "\n".join(lines)
+        return header
     finally:
         await tav.close()
 

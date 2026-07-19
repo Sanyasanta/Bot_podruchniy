@@ -35,7 +35,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.ensure_profile(update.effective_user.id, update.effective_user.first_name)
     text = (
         "🤖 Podruchniy готов к работе\n\n"
-        "Привет! На связи Саша Булкин. Я собрал для тебя самые мощные и удобные нейросети для текста, изображений, видео и музыки.\n\n"
+        "Привет! Я собрал для тебя самые мощные и удобные нейросети для текста, изображений, видео и музыки.\n\n"
         "Что можно здесь:\n"
         "- ⚡️ Выбрать модель: от домашки до рабочих задач. 8 текстовых ИИ на выбор — ответ мгновенно.\n"
         "- 🎨 Изображения: сгенерировать картинку или отредактировать фото.\n"
@@ -304,7 +304,23 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply = "Tavily API ключ не настроен"
         else:
             query = args.get("query") or update.effective_message.text
-            reply = await do_web(cfg.tavily_api_key, query)
+            # First, fetch sources
+            sources_md = await do_web(cfg.tavily_api_key, query)
+            # Then, ask LLM for a short summary with references
+            ai2 = CloudflareAI(cfg.cf_account_id, cfg.cf_api_token)
+            try:
+                prompt = (
+                    f"Суммируй кратко основные новости по запросу: {query}. Сошлись на источники.\n\n"
+                    f"Источники:\n{sources_md}\n\n"
+                    "Требование: 3–5 пункта, каждый с ссылкой в конце строки."
+                )
+                msgs = [{"role": "user", "content": prompt}]
+                summary = await ai2.chat(msgs)
+                reply = f"{summary}\n\n{sources_md}"
+            except Exception as e:
+                reply = sources_md
+            finally:
+                await ai2.close()
     elif action == "open_app":
         if not cfg.enable_open_apps:
             reply = "Открытие приложений недоступно в этом окружении"
